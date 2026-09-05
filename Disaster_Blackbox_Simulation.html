@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ডিজাস্টার ব্ল্যাকবক্স ৩.৩ - অটোনোমাস সিমুলেশন ও ডিসপ্যাচ</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Three.js (Loaded stably in head to prevent race conditions) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #f1f5f9;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            transition: background-color 0.5s ease;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* Tactical sniper scope overlay over daylight background */
+        .scope-effect {
+            background-image: 
+                radial-gradient(circle, transparent 35%, rgba(15, 23, 42, 0.05) 55%, rgba(15, 23, 42, 0.25) 85%),
+                linear-gradient(to right, rgba(16, 185, 129, 0.15) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(16, 185, 129, 0.15) 1px, transparent 1px);
+            background-size: 100% 100%, 35px 35px, 35px 35px;
+            pointer-events: none;
+            transition: all 0.5s ease;
+        }
+        /* Custom styled scrollbar */
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.05);
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(16, 185, 129, 0.2);
+            border-radius: 3px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: rgba(16, 185, 129, 0.6);
+        }
+        .pulse-border {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+            animation: pulse-border-anim 2s infinite;
+        }
+        @keyframes pulse-border-anim {
+            70% {
+                box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+        /* Draggable Control Bar Styling */
+        #control-dock {
+            touch-action: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="select-none text-slate-800">
+
+    <!-- High-Tech Sequential Engine Loader Screen -->
+    <div id="engine-loader" class="fixed inset-0 bg-slate-950 z-50 flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="relative w-24 h-24 flex items-center justify-center mb-6">
+            <div class="absolute inset-0 border-4 border-emerald-500/10 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-t-emerald-500 rounded-full animate-spin"></div>
+            <i class="fa-solid fa-satellite-dish text-2xl text-emerald-400 animate-pulse"></i>
+        </div>
+        <h2 class="text-white font-bold text-lg mb-2 tracking-wide uppercase">ডিজাস্টার ব্ল্যাকবক্স ৩.৩ সচল হচ্ছে</h2>
+        <p id="loading-text" class="text-slate-400 text-xs font-mono tracking-wider">রেন্ডার ইঞ্জিন লোড হচ্ছে...</p>
+        <div class="w-48 h-1 bg-slate-800 rounded-full overflow-hidden mt-4">
+            <div id="loading-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 10%;"></div>
+        </div>
+    </div>
+
+    <!-- 3D Canvas Box -->
+    <div id="canvas-container" class="w-full h-full absolute inset-0"></div>
+
+    <!-- Active Sniper Grid Scope Layer -->
+    <div id="scope-layer" class="scope-effect absolute inset-0 w-full h-full z-10 opacity-0 flex items-center justify-center border-[12px] md:border-[24px] border-slate-900/60 transition-opacity duration-500">
+        <!-- Center Target Ring -->
+        <div class="relative w-48 h-48 md:w-80 md:h-80 rounded-full border-2 border-emerald-500/40 flex items-center justify-center">
+            <div class="absolute w-full h-[1px] bg-emerald-500/30"></div>
+            <div class="absolute h-full w-[1px] bg-emerald-500/30"></div>
+            <div class="w-16 h-16 rounded-full border border-emerald-400/60 animate-ping"></div>
+            <span class="absolute -top-7 text-emerald-400 font-mono text-[9px] md:text-[11px] font-bold tracking-widest bg-slate-950 px-3 py-1 rounded shadow-lg text-white">করিডোর mmWave স্ক্যান সচল</span>
+        </div>
+    </div>
+
+    <!-- LEFT SIDEBAR: Autonomous Cognitive Command Panel -->
+    <div id="left-sidebar-container" class="fixed top-4 left-4 bottom-4 w-80 md:w-96 bg-slate-950/95 backdrop-blur-md rounded-2xl border border-slate-800/85 p-4 z-20 flex flex-col justify-between shadow-2xl transition-transform duration-300 ease-in-out transform -translate-x-0">
+        <!-- Slide Handle for Left Sidebar -->
+        <button onclick="toggleLeftSidebar()" class="absolute right-[-36px] top-1/2 -translate-y-1/2 w-9 h-16 bg-slate-950/95 backdrop-blur-md text-white rounded-r-xl border-r border-t border-b border-slate-800/80 flex items-center justify-center cursor-pointer pointer-events-auto shadow-xl hover:text-emerald-400 transition-colors">
+            <i id="left-sidebar-toggle-icon" class="fa-solid fa-chevron-left text-xs"></i>
+        </button>
+
+        <div class="flex flex-col h-full overflow-hidden text-slate-200">
+            <!-- Header Title with Settings Config button -->
+            <div class="flex items-center justify-between pb-3 border-b border-white/10 mb-3 flex-shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 animate-pulse">
+                        <i class="fa-solid fa-brain text-sm"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xs md:text-sm font-bold text-white tracking-wide">অটোনোমাস কগনিティブ কমান্ড</h2>
+                        <p class="text-[9px] text-emerald-400">রিয়েল-টাইম লাইভ ডিসপ্যাচ</p>
+                    </div>
+                </div>
+                <button onclick="openConfigModal()" class="text-slate-400 hover:text-emerald-400 transition-colors p-1" title="কনফিগারেশন সেটিংস">
+                    <i class="fa-solid fa-gears text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Chat & Operations Hub -->
+            <div class="flex-1 flex flex-col overflow-hidden bg-slate-900/60 rounded-xl border border-slate-800 p-2.5">
+                <div class="flex items-center justify-between text-[9px] font-mono text-slate-400 pb-1.5 mb-1.5 border-b border-slate-800">
+                    <span>স্ট্যাটাস: <span class="text-emerald-400 font-bold animate-pulse">অনলাইন</span></span>
+                    <span>লিঙ্ক: LORA Secure Encrypted</span>
+                </div>
+
+                <!-- Chat Messages Logs -->
+                <div id="autonomous-chat-box" class="flex-1 overflow-y-auto custom-scroll space-y-3 mb-2.5 pr-1.5 text-xs">
+                    <div class="bg-slate-950/40 border border-slate-800/60 rounded-lg p-2.5">
+                        <p class="text-[10px] text-emerald-400 font-bold mb-1 flex items-center gap-1">
+                            <i class="fa-solid fa-robot"></i> অটোনোমাস সিস্টেম ৩.৩
+                        </p>
+                        <p class="text-slate-300 leading-relaxed text-[11px]">
+                            স্বাগতম! আমি ভবনের অটোনোমাস ইন্টেলিজেন্ট কো-পাইলট। যেকোনো জরুরী প্রয়োজনে নিচে প্রশ্ন করুন। আমি সরাসরি লাইভ সেন্সর ট্র্যাক করে উত্তর দেব!
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Suggestion Chips -->
+                <div class="flex flex-wrap gap-1 mb-2">
+                    <button onclick="sendQuickQuery('ভবনের বাসিন্দারা কে কেমন আছে এবং কারা জীবিত?')" class="text-[9px] bg-slate-800/80 hover:bg-emerald-500/10 hover:text-emerald-300 border border-slate-700 hover:border-emerald-500/30 px-2 py-0.5 rounded transition-all text-left">কারা জীবিত/কেমন আছে?</button>
+                    <button onclick="sendQuickQuery('ভূমিকম্পে কত জন জীবিত বা অসাড়?')" class="text-[9px] bg-slate-800/80 hover:bg-amber-500/10 hover:text-amber-300 border border-slate-700 hover:border-amber-500/30 px-2 py-0.5 rounded transition-all text-left">কম্পনে ক্যাজুয়াল্টি কত?</button>
+                    <button onclick="sendQuickQuery('ভবনে কি আগুন লেগেছে?')" class="text-[9px] bg-slate-800/80 hover:bg-red-500/10 hover:text-red-300 border border-slate-700 hover:border-red-500/30 px-2 py-0.5 rounded transition-all text-left">আগুন লেগেছে কি?</button>
+                    <button onclick="sendQuickQuery('চোর কি ভবনে আছে?')" class="text-[9px] bg-slate-800/80 hover:bg-purple-500/10 hover:text-purple-300 border border-slate-700 hover:border-purple-500/30 px-2 py-0.5 rounded transition-all text-left">চোর আছে কি?</button>
+                </div>
+
+                <!-- Input box -->
+                <div class="flex gap-1.5">
+                    <input id="chat-input" type="text" placeholder="অটোনোমাসকে প্রশ্ন করুন..." class="flex-1 bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-emerald-500/60 focus:outline-none rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 transition-all">
+                    <button onclick="sendMessage()" class="w-9 h-9 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center justify-center transition-colors shadow-lg shadow-emerald-950/40">
+                        <i id="send-icon" class="fa-solid fa-paper-plane text-xs"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Model info footer -->
+            <div class="mt-2 text-[9px] text-slate-500 flex justify-between items-center px-1">
+                <span id="active-model-name"><i class="fa-solid fa-brain"></i> মডেল: gemini-2.5-flash</span>
+                <span>ভার্সন: ৩.৩ অটোনোমাস</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR: Dynamic Realtime HUD Drawer -->
+    <div id="sidebar-container" class="fixed top-4 right-4 bottom-4 w-72 md:w-80 bg-slate-950/95 backdrop-blur-md rounded-2xl border border-slate-800/80 p-4 z-20 flex flex-col justify-between shadow-2xl transition-transform duration-300 ease-in-out transform translate-x-0">
+        
+        <!-- Pull/Slide Toggle Handle Sticking Out to the Left -->
+        <button onclick="toggleSidebar()" class="absolute left-[-36px] top-1/2 -translate-y-1/2 w-9 h-16 bg-slate-950/95 backdrop-blur-md text-white rounded-l-xl border-l border-t border-b border-slate-800/80 flex items-center justify-center cursor-pointer pointer-events-auto shadow-xl hover:text-emerald-400 transition-colors">
+            <i id="sidebar-toggle-icon" class="fa-solid fa-chevron-right text-xs"></i>
+        </button>
+
+        <div class="flex flex-col h-full overflow-hidden text-slate-200">
+            <!-- Header Title -->
+            <div class="flex items-center gap-2.5 pb-3 border-b border-white/10 mb-3 flex-shrink-0">
+                <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 animate-pulse">
+                    <i class="fa-solid fa-satellite-dish text-sm"></i>
+                </div>
+                <div>
+                    <h2 class="text-xs md:text-sm font-bold text-white tracking-wide">সেন্ট্রাল রিসিভার প্যানেল</h2>
+                    <p class="text-[9px] text-slate-400">১০ তলা ফ্লোর প্ল্যান ডাটা</p>
+                </div>
+            </div>
+
+            <!-- Floor Status Matrix Wrapper -->
+            <div class="flex-1 overflow-y-auto custom-scroll pr-1">
+                <h3 class="text-[9px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <i class="fa-solid fa-layer-group"></i> লাইভ ফ্লোর ম্যাট্রিক্স (ক্লিক করে ফোকাস করুন)
+                </h3>
+                
+                <!-- Floor Loop (10 to 1) dynamically re-rendered in JS -->
+                <div id="floor-list-container" class="space-y-1.5">
+                    <!-- Dynamically populated via renderDynamicDashboard() -->
+                </div>
+            </div>
+
+            <!-- Live Legend Panel -->
+            <div class="mt-3 pt-3 border-t border-white/10 text-[10px] space-y-2 flex-shrink-0">
+                <div class="flex justify-between items-center bg-black/40 p-2 rounded border border-white/5">
+                    <span class="text-slate-300">মোট জীবিত ব্যক্তি:</span>
+                    <span id="stat-alive" class="font-bold text-emerald-400">১৮ জন</span>
+                </div>
+                <div class="flex justify-between items-center bg-black/40 p-2 rounded border border-white/5">
+                    <span class="text-slate-300">অসাড়/মৃত ব্যক্তি:</span>
+                    <span id="stat-unresponsive" class="font-bold text-rose-400">০ জন</span>
+                </div>
+                <div class="flex items-center gap-2 justify-center py-1 text-[9px] text-slate-500">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>অফলাইন লোরো সংযোগ সক্রিয়</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Left Header Info & Targets -->
+    <div class="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none z-20 transition-all duration-300" id="top-left-header">
+        <!-- Extra wrapper to push content to the right if left sidebar is active -->
+        <div class="flex flex-col gap-2 transition-all duration-300 ml-0 md:ml-96">
+            <div class="flex items-center gap-3 bg-slate-950/90 backdrop-blur-md px-4 py-2.5 rounded-xl border border-slate-800 pointer-events-auto shadow-md">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></div>
+                <div class="flex-1 mr-4">
+                    <h1 class="text-xs md:text-sm font-bold text-white uppercase tracking-wider">১০ তলা রিয়েল-লাইফ বিল্ডিং</h1>
+                    <p class="text-[9px] text-slate-400">স্মার্ট ডিজাস্টার ব্ল্যাকবক্স ৩.৩</p>
+                </div>
+                
+                <!-- Day/Night Mode Switcher button -->
+                <button onclick="toggleTheme()" class="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 flex items-center justify-center text-slate-300 transition-all" title="থিম পরিবর্তন">
+                    <i id="theme-toggle-icon" class="fa-solid fa-moon text-sm"></i>
+                </button>
+            </div>
+            
+            <!-- Floor Navigation Target Pills -->
+            <div class="flex flex-wrap items-center gap-1 bg-slate-950/95 backdrop-blur-sm p-1 rounded-lg border border-slate-800 pointer-events-auto text-[9px] md:text-[10px] shadow-sm">
+                <button onclick="zoomToPreset('building')" class="px-2 py-0.5 text-slate-300 hover:text-white hover:bg-white/10 rounded transition-all">পুরো ভবন</button>
+                <button onclick="zoomToPreset('f8')" class="px-2 py-0.5 text-slate-300 hover:text-white hover:bg-white/10 rounded transition-all">৮ম তলা (ভূমিকম্প)</button>
+                <button onclick="zoomToPreset('f4')" class="px-2 py-0.5 text-slate-300 hover:text-white hover:bg-white/10 rounded transition-all">৪র্থ তলা (অগ্নিকাণ্ড)</button>
+                <button onclick="zoomToPreset('f1')" class="px-2 py-0.5 text-slate-300 hover:text-white hover:bg-white/10 rounded transition-all">১ম তলা (অনুপ্রবেশ)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Left Alert Dialogue Log (Dismissable via cross button) -->
+    <div id="dynamic-log" class="absolute bottom-28 left-4 right-4 md:right-auto md:max-w-xs bg-slate-950/95 backdrop-blur-md p-4 rounded-xl border border-slate-850 pointer-events-auto transition-all duration-500 opacity-0 transform translate-y-4 z-20 shadow-xl relative">
+        <!-- Close/Dismiss cross button -->
+        <button onclick="closeAlertLog()" class="absolute top-2 right-2 text-slate-400 hover:text-rose-400 transition-colors w-5 h-5 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10" title="বন্ধ করুন">
+            <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+        
+        <div class="flex items-center gap-2 mb-1 mr-4">
+            <i id="log-icon" class="fa-solid fa-triangle-exclamation text-amber-500 animate-pulse"></i>
+            <h3 id="log-title" class="text-white font-bold text-xs uppercase tracking-widest">রিয়েল-টাইম অ্যালার্ট</h3>
+        </div>
+        <p id="log-body" class="text-[10px] text-slate-300 leading-relaxed"></p>
+    </div>
+
+    <!-- Emergency Dispatch Informer Modal Popup -->
+    <div id="emergency-modal" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center opacity-0 pointer-events-none transition-all duration-500">
+        <div class="bg-slate-950 border-2 border-red-500/80 rounded-2xl p-6 max-w-sm mx-4 shadow-2xl transform scale-90 transition-transform duration-500 flex flex-col items-center text-center">
+            <div class="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 text-3xl mb-4 animate-bounce">
+                <i class="fa-solid fa-satellite animate-pulse"></i>
+            </div>
+            <h2 class="text-white font-bold text-lg mb-2 uppercase tracking-wide">জরুরি সিগন্যাল প্রেরিত!</h2>
+            <p class="text-slate-300 text-xs leading-relaxed mb-6">
+                ১০ তলার ব্ল্যাকবক্স স্বয়ংক্রিয়ভাবে অটোনোমাস কল জেনারেট করেছে। <strong>পুলিশ (Police)</strong>, <strong>ফায়ার সার্ভিস (Fire Service)</strong> এবং <strong>অ্যাম্বুলেন্স (Ambulance)</strong> টিমকে ঘটনাস্থলের লাইভ জিপিএস স্থানাঙ্ক এবং অটোনোমাস ইন্টেলিজেন্ট লাইভ নির্দেশনা পাঠানো হয়েছে।
+            </p>
+            <button onclick="dismissEmergencyModal()" class="w-full py-2.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-xl text-xs font-bold tracking-wider transition-all shadow-lg">
+                বার্তাটি বন্ধ করুন (Dismiss)
+            </button>
+        </div>
+    </div>
+
+    <!-- API Key & Instruction Config Modal (Custom overlay settings) -->
+    <div id="config-modal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center opacity-0 pointer-events-none transition-all duration-300">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 w-full max-w-md mx-4 shadow-2xl">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-gears text-emerald-400"></i>
+                    <h3 class="text-white font-bold text-sm">অটোনোমাস ইন্টেলিজেন্স কনফিগারেশন</h3>
+                </div>
+                <button onclick="closeConfigModal()" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-xs text-slate-200">
+                <div>
+                    <label class="block text-slate-300 font-bold mb-1">অটোনোমাস API চাবি (Gemini API Key)</label>
+                    <input id="api-key-input" type="password" placeholder="AI-এর সিক্রেট এপিআই কি দিন..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:outline-none rounded-lg px-3 py-2 text-slate-200">
+                    <p class="text-[10px] text-slate-400 mt-1">ফাঁকা রাখলে অটোনোমাস ইন্টেলিজেন্স স্বয়ংক্রিয়ভাবে অফলাইন ডিফেন্ডার মোডে মক ডাটা ব্যবহার করবে।</p>
+                </div>
+
+                <div>
+                    <label class="block text-slate-300 font-bold mb-1">সিস্টেমের মূল নির্দেশিকা (Autonomous Directives)</label>
+                    <textarea id="system-directives" rows="6" class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 focus:outline-none rounded-lg p-2 text-slate-300 font-mono text-[10px] resize-none leading-relaxed">১. আপনি হচ্ছেন 'ডিজাস্টার ব্ল্যাকবক্স ৩.৩ অটোনোমাস সিস্টেম'।
+২. চোর বা অনুপ্রবেশকারী সনাক্ত হলে পুলিশকে ১ তলার ফ্লোরপ্ল্যান অনুযায়ী গাইড করুন। চোর ফ্ল্যাট ১০০৫ এ আছে।
+৩. ৪ তলায় আগুন লাগলে ফায়ার সার্ভিসকে জল ছিটানোর সঠিক নির্দেশনা দিন (উৎস: ফ্ল্যাট ৪০১, আটকে আছেন হাসান মাহমুদ)।
+৪. ৮ তলায় ভূমিকম্পের ক্ষতি হলে রেসকিউ টিমকে আটকে পড়া ব্যক্তিদের সঠিক অবস্থা ও উদ্ধার প্রণালী বাতলে দিন।
+৫. উত্তর সবসময় বাংলায়, অত্যন্ত সুনির্দিষ্ট এবং অত্যন্ত সংক্ষিপ্ত আকারেCommander এর প্রশ্নের হুবহু পয়েন্ট টু পয়েন্ট উত্তর দিন। অপ্রাসঙ্গিক কিছু বলবেন না।</textarea>
+                </div>
+            </div>
+
+            <div class="mt-5 flex gap-2">
+                <button onclick="saveConfigurations()" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold transition-all text-xs">সেটিংস সংরক্ষণ করুন</button>
+                <button onclick="closeConfigModal()" class="py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-all text-xs">বাতিল</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOVEABLE BOTTOM CONTROL DOCK -->
+    <div id="control-dock" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-slate-950/95 backdrop-blur-xl px-4 py-2.5 rounded-2xl md:rounded-3xl border border-slate-800 flex flex-col gap-1.5 z-40 shadow-2xl text-slate-200 w-[92%] max-w-lg md:w-auto">
+        
+        <!-- Drag Handle -->
+        <div id="drag-handle" class="w-16 h-1.5 bg-slate-700/60 hover:bg-emerald-500/50 rounded-full mx-auto cursor-grab active:cursor-grabbing mb-1" title="মাউস দিয়ে চেপে টেনে বা ডাবল-ট্যাপ করে সরান"></div>
+        
+        <div class="flex items-center justify-around gap-2 md:gap-5">
+            <!-- Thermal Scan Trigger -->
+            <button onclick="triggerSystem('scan')" class="flex flex-col items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-all group">
+                <div class="w-10 h-10 md:w-11 md:h-11 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center group-hover:bg-emerald-500/25 transition-all text-sm md:text-base">
+                    <i class="fa-solid fa-eye-low-vision"></i>
+                </div>
+                <span class="text-[9px] md:text-[10px] font-semibold">থার্মাল স্কোপ</span>
+            </button>
+
+            <!-- Earthquake Trigger -->
+            <button onclick="triggerSystem('earthquake')" class="flex flex-col items-center gap-1 text-amber-400 hover:text-amber-300 transition-all group">
+                <div class="w-10 h-10 md:w-11 md:h-11 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center group-hover:bg-amber-500/25 transition-all text-sm md:text-base">
+                    <i class="fa-solid fa-house-crack"></i>
+                </div>
+                <span class="text-[9px] md:text-[10px] font-semibold">ভূমিকম্প</span>
+            </button>
+
+            <!-- Fire Trigger -->
+            <button onclick="triggerSystem('fire')" class="flex flex-col items-center gap-1 text-red-400 hover:text-red-300 transition-all group">
+                <div class="w-10 h-10 md:w-11 md:h-11 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center group-hover:bg-red-500/25 transition-all text-sm md:text-base">
+                    <i class="fa-solid fa-fire"></i>
+                </div>
+                <span class="text-[9px] md:text-[10px] font-semibold">অগ্নিকাণ্ড</span>
+            </button>
+
+            <!-- Intruder Trigger -->
+            <button onclick="triggerSystem('intruder')" class="flex flex-col items-center gap-1 text-purple-400 hover:text-purple-300 transition-all group" title="১ম তলায় চোর সনাক্তকরণ">
+                <div class="w-10 h-10 md:w-11 md:h-11 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 transition-all text-sm md:text-base">
+                    <i class="fa-solid fa-user-ninja"></i>
+                </div>
+                <span class="text-[9px] md:text-[10px] font-semibold">অনুপ্রবেশ</span>
+            </button>
+
+            <!-- Reset Button -->
+            <button onclick="triggerSystem('reset')" class="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-all group">
+                <div class="w-10 h-10 md:w-11 md:h-11 rounded-full bg-white/5 border border-white/10 flex items-center justify-center group-hover:bg-white/15 transition-all text-sm md:text-base">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </div>
+                <span class="text-[9px] md:text-[10px] font-semibold">রিসেট</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 3D Engine Initialization & Control -->
+    <script>
+        // Global variables
+        let scene, camera, renderer, controls;
+        let buildingGroup, occupantsGroup, furnitureGroup, activeAlertDevices = [];
+        let cityBuildingsGroup, pedestriansGroup, rescueVehiclesGroup;
+        let fireSystem, radarSlices = [], loraWaves;
+        let isSidebarOpen = true;
+        let isLeftSidebarOpen = true;
+        let isDarkMode = false; // Default is Light Day Mode
+
+        // Light entities for theme switches
+        let ambient, skyDir, secondaryLight;
+        
+        const clock = new THREE.Clock();
+
+        // Camera targets
+        let targetCamPos = new THREE.Vector3(30, 24, 30);
+        let targetLookAt = new THREE.Vector3(0, 10, 0);
+        let currentStatus = "none";
+        
+        let isTransitioning = false;
+        let transitionStartTime = 0;
+
+        let deathTimer = null;
+        let hudUpdateTimer = null;
+
+        // Configurations for AI / Autonomous system
+        let userApiKey = ""; 
+        let userDirectives = `১. আপনি হচ্ছেন 'ডিজাস্টার ব্ল্যাকবক্স ৩.৩ অটোনোমাস সিস্টেম'।
+২. চোর বা অনুপ্রবেশকারী সনাক্ত হলে পুলিশকে ১ তলার ফ্লোরপ্ল্যান অনুযায়ী গাইড করুন। চোর ফ্ল্যাট ১০০৫ এ আছে।
+৩. ৪ তলায় আগুন লাগলে ফায়ার সার্ভিসকে জল ছিটানোর সঠিক নির্দেশনা দিন (উৎস: ফ্ল্যাট ৪০১, আটকে আছেন হাসান মাহমুদ)।
+৪. ৮ তলায় ভূমিকম্পের ক্ষতি হলে রেসকিউ টিমকে আটকে পড়া ব্যক্তিদের সঠিক অবস্থা ও উদ্ধার প্রণালী বাতলে দিন।
+৫. উত্তর সবসময় বাংলায়, অত্যন্ত সুনির্দিষ্ট, বুলেট পয়েন্ট আকারে এবং প্রফেশনাল কমান্ড সেন্টারের ভঙ্গিতে প্রদান করুন।`;
+
+        // Dynamic occupants database from 3.2
+        const occupantsData = [
+            { id: 1, floor: 10, flat: "১০০২", status: "alive", name: "করিম সাহেব", pos: { x: -2.2, y: 17.1, z: -1.2 }, color: 0x0284c7 },
+            { id: 2, floor: 9, flat: "৯০১", status: "alive", name: "ফাতেমা বেগম", pos: { x: 3.1, y: 15.2, z: 2.5 }, color: 0x0d9488 },
+            { id: 3, floor: 9, flat: "৯১০", status: "alive", name: "সাকিব চৌধুরী", pos: { x: -3.5, y: 15.2, z: -2.1 }, color: 0x0284c7 },
+            { id: 4, floor: 8, flat: "৮০২", status: "alive", name: "কামাল উদ্দিন", pos: { x: -2.5, y: 13.3, z: -1.5 }, color: 0x0284c7 },
+            { id: 5, floor: 8, flat: "৮০৩", status: "alive", name: "সাদিয়া আক্তার", pos: { x: 3.0, y: 13.3, z: 2.0 }, color: 0x0d9488 },
+            { id: 6, floor: 8, flat: "৮০৫", status: "alive", name: "সোহেল রানা", pos: { x: -1.0, y: 13.3, z: 3.5 }, color: 0x0d9488 },
+            { id: 7, floor: 7, flat: "৭০৫", status: "alive", name: "ড. আশরাফ", pos: { x: 2.0, y: 11.4, z: -3.0 }, color: 0x0d9488 },
+            { id: 8, floor: 6, flat: "৬০১", status: "alive", name: "তানজিলা খান", pos: { x: -3.0, y: 9.5, z: 2.0 }, color: 0x0284c7 },
+            { id: 9, floor: 5, flat: "৫০৩", status: "alive", name: "রফিক আহমেদ", pos: { x: 1.5, y: 7.6, z: -1.5 }, color: 0x0284c7 },
+            { id: 10, floor: 5, flat: "৫০৭", status: "alive", name: "লিটন মিয়া", pos: { x: -2.5, y: 7.6, z: 3.0 }, color: 0x0d9488 },
+            { id: 11, floor: 4, flat: "৪০১", status: "alive", name: "হাসান মাহমুদ", pos: { x: -2.0, y: 5.7, z: -2.0 }, color: 0x10b981 },
+            { id: 12, floor: 4, flat: "৪০৩", status: "alive", name: "মিরাজ ইসলাম", pos: { x: 3.5, y: 5.7, z: -1.2 }, color: 0x10b981 },
+            { id: 13, floor: 3, flat: "৩০২", status: "alive", name: "নুসরাত সুলতানা", pos: { x: -2.8, y: 3.8, z: 1.8 }, color: 0x0d9488 },
+            { id: 14, floor: 2, flat: "২০৮", status: "alive", name: "আরিফ বিল্লাহ", pos: { x: 2.0, y: 1.9, z: -2.5 }, color: 0x0284c7 },
+            { id: 15, floor: 2, flat: "২১০", status: "alive", name: "তাহসিন শেখ", pos: { x: -3.2, y: 1.9, z: -1.0 }, color: 0x0d9488 },
+            { id: 16, floor: 1, flat: "১০০১", status: "alive", name: "সালামত সাহেব", pos: { x: -2.5, y: 0.1, z: -2.5 }, color: 0x0d9488 },
+            { id: 17, floor: 1, flat: "১০০৫", status: "intruder", name: "অনুপ্রবেশকারী (চোর)", pos: { x: 4.5, y: 0.1, z: 3.8 }, color: 0xa855f7 }
+        ];
+
+        let simOccupantsState = [];
+
+        function updateLoadingStatus(text, progress) {
+            const txt = document.getElementById('loading-text');
+            const bar = document.getElementById('loading-bar');
+            if (txt) txt.innerText = text;
+            if (bar) bar.style.width = progress + '%';
+        }
+
+        function init() {
+            updateLoadingStatus("১০-তলার ৩ডি ওয়ার্ল্ড রেন্ডার হচ্ছে...", 60);
+            
+            const container = document.getElementById('canvas-container');
+            if (!container) return;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf1f5f9); 
+            scene.fog = new THREE.FogExp2(0xf1f5f9, 0.015);
+
+            camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
+            camera.position.set(30, 24, 30);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // Controls setup
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxPolarAngle = Math.PI / 2 - 0.05;
+            controls.minDistance = 6;
+            controls.maxDistance = 120;
+
+            // Lights
+            ambient = new THREE.AmbientLight(0xffffff, 0.85);
+            scene.add(ambient);
+
+            skyDir = new THREE.DirectionalLight(0xffffff, 0.9);
+            skyDir.position.set(20, 40, 20);
+            skyDir.castShadow = true;
+            scene.add(skyDir);
+
+            secondaryLight = new THREE.DirectionalLight(0x38bdf8, 0.3);
+            secondaryLight.position.set(-30, 10, -30);
+            scene.add(secondaryLight);
+
+            // Construct Scene Groups
+            createGroundGrid();
+            createSurroundingCity(); 
+            createRoadNetwork();
+            createPedestrianArmy();
+            create10StoryBuilding(); 
+            createDetailedOccupants();
+            createRescueVehicles();
+            createSensorsAndSignals();
+
+            // Setup initial state
+            resetCasualtySimulation();
+            renderDynamicDashboard('reset');
+
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('pointerdown', () => {
+                isTransitioning = false;
+            });
+
+            const themeBtnIcon = document.getElementById('theme-toggle-icon');
+            if (themeBtnIcon) themeBtnIcon.className = 'fa-solid fa-moon text-slate-300';
+
+            makeDockDraggable();
+
+            updateLoadingStatus("সিমুলেশন প্রস্তুত!", 100);
+            
+            setTimeout(() => {
+                const loader = document.getElementById('engine-loader');
+                if (loader) {
+                    loader.style.opacity = '0';
+                    setTimeout(() => loader.remove(), 600);
+                }
+            }, 500);
+
+            document.getElementById('api-key-input').value = userApiKey;
+            document.getElementById('system-directives').value = userDirectives;
+
+            animate();
+        }
+
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            
+            const themeBtnIcon = document.getElementById('theme-toggle-icon');
+            const bgDay = new THREE.Color(0xf1f5f9);
+            const bgDark = new THREE.Color(0x070b13);
+            const targetColor = isDarkMode ? bgDark : bgDay;
+
+            scene.background = targetColor;
+            scene.fog.color = targetColor;
+
+            ambient.intensity = isDarkMode ? 0.55 : 0.85;
+            skyDir.intensity = isDarkMode ? 0.6 : 0.9;
+            secondaryLight.intensity = isDarkMode ? 0.6 : 0.3;
+
+            document.body.style.backgroundColor = isDarkMode ? "#070b13" : "#f1f5f9";
+
+            if (isDarkMode) {
+                themeBtnIcon.className = 'fa-solid fa-sun text-amber-400';
+                addSystemChatMessage("💡 [পরিবেশ ডিরেক্টিভ] - নাইটভিশন ডার্ক মোড সক্রিয় করা হয়েছে।");
+            } else {
+                themeBtnIcon.className = 'fa-solid fa-moon text-slate-300';
+                addSystemChatMessage("☀️ [পরিবেশ ডিরেক্টিভ] - ডেলাইট মোড সক্রিয় করা হয়েছে।");
+            }
+        }
+
+        function closeAlertLog() {
+            const logBox = document.getElementById('dynamic-log');
+            if (logBox) {
+                logBox.classList.add('opacity-0', 'translate-y-4');
+                logBox.classList.remove('opacity-100', 'translate-y-0');
+            }
+        }
+
+        function toggleLeftSidebar() {
+            const container = document.getElementById('left-sidebar-container');
+            const icon = document.getElementById('left-sidebar-toggle-icon');
+            const header = document.getElementById('top-left-header');
+            isLeftSidebarOpen = !isLeftSidebarOpen;
+
+            if (isLeftSidebarOpen) {
+                container.classList.remove('-translate-x-full');
+                container.classList.add('-translate-x-0');
+                icon.className = 'fa-solid fa-chevron-left text-xs';
+                header.classList.remove('pl-0');
+            } else {
+                container.classList.remove('-translate-x-0');
+                container.classList.add('-translate-x-full');
+                icon.className = 'fa-solid fa-chevron-right text-xs';
+                header.classList.add('pl-0');
+            }
+        }
+
+        function toggleSidebar() {
+            const container = document.getElementById('sidebar-container');
+            const icon = document.getElementById('sidebar-toggle-icon');
+            isSidebarOpen = !isSidebarOpen;
+
+            if (isSidebarOpen) {
+                container.classList.remove('translate-x-full');
+                container.classList.add('translate-x-0');
+                icon.className = 'fa-solid fa-chevron-right text-xs';
+            } else {
+                container.classList.remove('translate-x-0');
+                container.classList.add('translate-x-full');
+                icon.className = 'fa-solid fa-chevron-left text-xs';
+            }
+        }
+
+        function openConfigModal() {
+            const m = document.getElementById('config-modal');
+            m.classList.remove('opacity-0', 'pointer-events-none');
+            m.querySelector('div').classList.remove('scale-95');
+            m.querySelector('div').classList.add('scale-100');
+        }
+
+        function closeConfigModal() {
+            const m = document.getElementById('config-modal');
+            m.classList.add('opacity-0', 'pointer-events-none');
+            m.querySelector('div').classList.remove('scale-100');
+            m.querySelector('div').classList.add('scale-95');
+        }
+
+        function saveConfigurations() {
+            const apiKeyVal = document.getElementById('api-key-input').value.trim();
+            const dirVal = document.getElementById('system-directives').value.trim();
+
+            userApiKey = apiKeyVal;
+            userDirectives = dirVal;
+
+            addSystemChatMessage("অটোনোমাস সেটিংস আপডেট হয়েছে। নতুন নির্দেশনা সংরক্ষণ সম্পন্ন।");
+            closeConfigModal();
+        }
+
+        function createSurroundingCity() {
+            cityBuildingsGroup = new THREE.Group();
+            
+            const bldMat = new THREE.MeshStandardMaterial({ 
+                color: 0xe2e8f0, 
+                roughness: 0.8, 
+                metalness: 0.1 
+            });
+
+            const winMat = new THREE.MeshStandardMaterial({
+                color: 0x0284c7, 
+                roughness: 0.1,
+                metalness: 0.9,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            const coords = [
+                {x: -18, z: -18, w: 6, h: 14, d: 6},
+                {x: -18, z: 0, w: 5, h: 10, d: 5},
+                {x: -20, z: 18, w: 7, h: 18, d: 7},
+                {x: 0, z: -20, w: 6, h: 8, d: 6},
+                {x: 0, z: 20, w: 5, h: 12, d: 5},
+                {x: 18, z: -18, w: 6, h: 16, d: 6},
+                {x: 18, z: 0, w: 7, h: 22, d: 7}, 
+                {x: 18, z: 18, w: 6, h: 10, d: 6}
+            ];
+
+            coords.forEach(c => {
+                const bGroup = new THREE.Group();
+                bGroup.position.set(c.x, 0, c.z);
+
+                const bMesh = new THREE.Mesh(new THREE.BoxGeometry(c.w, c.h, c.d), bldMat);
+                bMesh.position.y = c.h/2;
+                bGroup.add(bMesh);
+
+                const pent = new THREE.Mesh(new THREE.BoxGeometry(c.w * 0.45, 1.4, c.d * 0.45), bldMat);
+                pent.position.set(0, c.h + 0.7, 0);
+                bGroup.add(pent);
+
+                const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.2, 8), new THREE.MeshBasicMaterial({ color: 0x475569 }));
+                ant.position.set(0, c.h + 2.4, 0);
+                bGroup.add(ant);
+
+                const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+                beacon.position.set(0, c.h + 3.5, 0);
+                bGroup.add(beacon);
+
+                const cols = Math.floor(c.w / 1.3);
+                const floors = Math.floor(c.h / 2.5);
+
+                for (let f = 1; f <= floors; f++) {
+                    const yOffset = (f - 0.5) * 2.5;
+                    for (let col = 0; col < cols; col++) {
+                        const xOffset = (col - (cols - 1) / 2) * 1.3;
+
+                        const fWin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.65, 0.05), winMat);
+                        fWin.position.set(xOffset, yOffset, c.d/2 + 0.02);
+                        bGroup.add(fWin);
+
+                        const bWin = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.65, 0.05), winMat);
+                        bWin.position.set(xOffset, yOffset, -c.d/2 - 0.02);
+                        bGroup.add(bWin);
+                    }
+                }
+                cityBuildingsGroup.add(bGroup);
+            });
+            scene.add(cityBuildingsGroup);
+        }
+
+        function createRoadNetwork() {
+            const roadMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.8 });
+            
+            const hRoad = new THREE.Mesh(new THREE.BoxGeometry(90, 0.02, 4), roadMat);
+            hRoad.position.set(0, 0.02, -8);
+            scene.add(hRoad);
+
+            const vRoad = new THREE.Mesh(new THREE.BoxGeometry(4, 0.02, 90), roadMat);
+            vRoad.position.set(-8, 0.02, 0);
+            scene.add(vRoad);
+        }
+
+        function createPedestrianArmy() {
+            pedestriansGroup = new THREE.Group();
+            const pedCount = 20;
+            const pedMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.9 });
+
+            for (let i = 0; i < pedCount; i++) {
+                const ped = new THREE.Group();
+                const bMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.6, 8), pedMat);
+                bMesh.position.y = 0.3;
+                ped.add(bMesh);
+
+                let onHRoad = Math.random() > 0.5;
+                if (onHRoad) {
+                    ped.position.set((Math.random() - 0.5) * 80, 0, -8 + (Math.random() - 0.5) * 1.5);
+                    ped.userData = { axis: 'x', dir: Math.random() > 0.5 ? 1 : -1, speed: 0.04 + Math.random() * 0.04 };
+                } else {
+                    ped.position.set(-8 + (Math.random() - 0.5) * 1.5, 0, (Math.random() - 0.5) * 80);
+                    ped.userData = { axis: 'z', dir: Math.random() > 0.5 ? 1 : -1, speed: 0.04 + Math.random() * 0.04 };
+                }
+                pedestriansGroup.add(ped);
+            }
+            scene.add(pedestriansGroup);
+        }
+
+        function createGroundGrid() {
+            const grid = new THREE.GridHelper(140, 60, 0x94a3b8, 0xcbd5e1);
+            grid.position.y = 0.01;
+            scene.add(grid);
+
+            const ringGeo = new THREE.RingGeometry(14, 14.8, 64);
+            const ringMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.15 });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = 0.02;
+            scene.add(ring);
+        }
+
+        function create10StoryBuilding() {
+            buildingGroup = new THREE.Group();
+            furnitureGroup = new THREE.Group();
+
+            const floorsCount = 10;
+            const floorHeight = 1.9;
+            const size = 12;
+
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0x1e293b, 
+                roughness: 0.8, 
+                metalness: 0.2, 
+                transparent: true, 
+                opacity: 0.18, 
+                depthWrite: false
+            });
+            const pillarMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2, metalness: 0.9 });
+            
+            const glassMat = new THREE.MeshStandardMaterial({
+                color: 0xe2e8f0, 
+                transparent: true, 
+                opacity: 0.08, 
+                roughness: 0.1,
+                metalness: 0.1,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+
+            for (let f = 0; f < floorsCount; f++) {
+                const y = f * floorHeight;
+
+                const slab = new THREE.Mesh(new THREE.BoxGeometry(size, 0.08, size), floorMat);
+                slab.position.y = y;
+                buildingGroup.add(slab);
+
+                const edgeGeo = new THREE.EdgesGeometry(slab.geometry);
+                const edgeLines = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: 0x334155, linewidth: 2 }));
+                edgeLines.position.y = y;
+                buildingGroup.add(edgeLines);
+
+                if (f > 0) { 
+                    const balSlab = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.05, 1.2), floorMat);
+                    balSlab.position.set(0, y, size/2 + 0.6);
+                    buildingGroup.add(balSlab);
+
+                    const balRailing = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.5, 0.05), glassMat);
+                    balRailing.position.set(0, y + 0.25, size/2 + 1.2);
+                    buildingGroup.add(balRailing);
+                }
+
+                const offset = size / 2 - 0.15;
+                const pillarPositions = [
+                    [-offset, y + floorHeight/2, -offset],
+                    [offset, y + floorHeight/2, -offset],
+                    [-offset, y + floorHeight/2, offset],
+                    [offset, y + floorHeight/2, offset]
+                ];
+
+                for (let pos of pillarPositions) {
+                    const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.16, floorHeight, 0.16), pillarMat);
+                    pillar.position.set(pos[0], pos[1], pos[2]);
+                    buildingGroup.add(pillar);
+                }
+
+                const wallGeo = new THREE.PlaneGeometry(size, floorHeight);
+                const w1 = new THREE.Mesh(wallGeo, glassMat); w1.position.set(0, y + floorHeight/2, size/2); buildingGroup.add(w1);
+                const w2 = new THREE.Mesh(wallGeo, glassMat); w2.position.set(0, y + floorHeight/2, -size/2); buildingGroup.add(w2);
+
+                const wallGroup = new THREE.Group();
+                wallGroup.position.y = y + floorHeight/2;
+
+                const internalWallMat = new THREE.MeshStandardMaterial({ 
+                    color: 0x334155, 
+                    transparent: true, 
+                    opacity: 0.1, 
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+
+                const leftCorridorWall = new THREE.Mesh(new THREE.BoxGeometry(0.04, floorHeight, size), internalWallMat);
+                leftCorridorWall.position.x = -1.5;
+                wallGroup.add(leftCorridorWall);
+
+                const rightCorridorWall = new THREE.Mesh(new THREE.BoxGeometry(0.04, floorHeight, size), internalWallMat);
+                rightCorridorWall.position.x = 1.5;
+                wallGroup.add(rightCorridorWall);
+
+                for (let k = -2; k <= 2; k++) {
+                    if (k !== 0) {
+                        const divWallL = new THREE.Mesh(new THREE.BoxGeometry(4.5, floorHeight, 0.04), internalWallMat);
+                        divWallL.position.set(-3.75, 0, k * (size/5));
+                        wallGroup.add(divWallL);
+
+                        const divWallR = new THREE.Mesh(new THREE.BoxGeometry(4.5, floorHeight, 0.04), internalWallMat);
+                        divWallR.position.set(3.75, 0, k * (size/5));
+                        wallGroup.add(divWallR);
+                    }
+                }
+
+                buildingGroup.add(wallGroup);
+                createCeilingBlackbox(y + floorHeight - 0.15, f + 1);
+                addWhiteFurniture(y);
+            }
+
+            const roofY = floorsCount * floorHeight;
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(size, 0.08, size), floorMat);
+            roof.position.y = roofY;
+            buildingGroup.add(roof);
+
+            const heliGeo = new THREE.CylinderGeometry(3.5, 3.5, 0.05, 32);
+            const heliCanvas = document.createElement('canvas');
+            heliCanvas.width = 128;
+            heliCanvas.height = 128;
+            const hCtx = heliCanvas.getContext('2d');
+            hCtx.fillStyle = '#475569';
+            hCtx.fillRect(0, 0, 128, 128);
+            hCtx.strokeStyle = '#ffffff';
+            hCtx.lineWidth = 6;
+            hCtx.beginPath();
+            hCtx.arc(64, 64, 52, 0, Math.PI * 2);
+            hCtx.stroke();
+            hCtx.fillStyle = '#ffffff';
+            hCtx.font = 'bold 50px Arial';
+            hCtx.textAlign = 'center';
+            hCtx.textBaseline = 'middle';
+            hCtx.fillText('H', 64, 64);
+            const heliTex = new THREE.CanvasTexture(heliCanvas);
+            const heliMat = new THREE.MeshStandardMaterial({ map: heliTex, roughness: 0.8 });
+            const helipad = new THREE.Mesh(heliGeo, heliMat);
+            helipad.position.set(0, roofY + 0.05, 0);
+            buildingGroup.add(helipad);
+
+            scene.add(buildingGroup);
+            scene.add(furnitureGroup);
+        }
+
+        function addWhiteFurniture(yPos) {
+            const furnitureMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.6, metalness: 0.1 });
+            
+            const bed = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.22, 1.8), furnitureMat);
+            bed.position.set(-3.8, yPos + 0.12, -3);
+            furnitureGroup.add(bed);
+
+            const sofa = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.25, 0.6), furnitureMat);
+            sofa.position.set(3.8, yPos + 0.12, 3);
+            furnitureGroup.add(sofa);
+        }
+
+        function createCeilingBlackbox(yPos, floorNum) {
+            const bb = new THREE.Group();
+            bb.position.set(0, yPos, 0);
+
+            const core = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.12, 0.4),
+                new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.1, metalness: 0.8 })
+            );
+            bb.add(core);
+
+            const beacon = new THREE.Mesh(
+                new THREE.SphereGeometry(0.08, 16, 16),
+                new THREE.MeshBasicMaterial({ color: 0x10b981 })
+            );
+            beacon.position.y = -0.08;
+            beacon.name = "alert-led";
+            bb.add(beacon);
+
+            bb.name = `blackbox-F${floorNum}`;
+            scene.add(bb);
+            activeAlertDevices.push(bb);
+        }
+
+        function createDetailedOccupants() {
+            occupantsGroup = new THREE.Group();
+
+            occupantsData.forEach(occ => {
+                const hGroup = new THREE.Group();
+                hGroup.position.set(occ.pos.x, occ.pos.y, occ.pos.z);
+                hGroup.name = `occupant-${occ.id}`;
+                hGroup.userData = { isCollapsing: false, collapseProgress: 0 };
+
+                const visualGroup = new THREE.Group();
+                visualGroup.name = "visual-group";
+
+                const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8 });
+                const clothMat = new THREE.MeshStandardMaterial({ color: occ.color, roughness: 0.4 });
+
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.7, 16), clothMat);
+                body.position.y = 0.35;
+                body.name = "h-body";
+                body.castShadow = true;
+                body.receiveShadow = true;
+                visualGroup.add(body);
+
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), skinMat);
+                head.position.y = 0.8;
+                head.name = "h-head";
+                head.castShadow = true;
+                visualGroup.add(head);
+
+                const thermalMat = new THREE.MeshBasicMaterial({
+                    color: occ.status === "alive" ? 0x10b981 : (occ.status === "intruder" ? 0x8b5cf6 : 0xef4444),
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0
+                });
+                const thermalCore = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.1, 0.5), thermalMat);
+                thermalCore.position.y = 0.5;
+                thermalCore.name = "thermal-core";
+                visualGroup.add(thermalCore);
+
+                hGroup.add(visualGroup);
+
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+                ctx.fillRect(0, 0, 256, 64);
+                ctx.strokeStyle = occ.status === 'alive' ? '#10b981' : (occ.status === 'intruder' ? '#a855f7' : '#ef4444');
+                ctx.lineWidth = 4;
+                ctx.strokeRect(0, 0, 256, 64);
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`${occ.name}`, 128, 38);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                const bb = new THREE.Mesh(
+                    new THREE.PlaneGeometry(2.4, 0.6), 
+                    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false })
+                );
+                bb.position.y = 1.35;
+                bb.name = "label-billboard";
+                hGroup.add(bb);
+
+                occupantsGroup.add(hGroup);
+            });
+
+            scene.add(occupantsGroup);
+        }
+
+        function createRescueVehicles() {
+            rescueVehiclesGroup = new THREE.Group();
+
+            const fTruck = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.2, 1.2), new THREE.MeshStandardMaterial({color: 0xef4444, roughness: 0.3}));
+            body.position.y = 0.6;
+            fTruck.add(body);
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 1.1), new THREE.MeshStandardMaterial({color: 0x1e293b, roughness: 0.1}));
+            cabin.position.set(1.1, 0.7, 0);
+            fTruck.add(cabin);
+            const flasher = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.4), new THREE.MeshBasicMaterial({color: 0x3b82f6}));
+            flasher.position.set(1.1, 1.3, 0);
+            flasher.name = "siren";
+            fTruck.add(flasher);
+            fTruck.position.set(-60, 0.1, -12);
+            fTruck.userData = { targetX: -15, targetZ: -10, speed: 0.5, active: false };
+            fTruck.name = "firetruck";
+            rescueVehiclesGroup.add(fTruck);
+
+            const pCar = new THREE.Group();
+            const pBody = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 1.0), new THREE.MeshStandardMaterial({color: 0x1e293b, roughness: 0.2}));
+            pBody.position.y = 0.4;
+            pCar.add(pBody);
+            const pCabin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.9), new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.1}));
+            pCabin.position.set(0.2, 0.8, 0);
+            pCar.add(pCabin);
+            const pFlasher = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.3), new THREE.MeshBasicMaterial({color: 0xef4444}));
+            pFlasher.position.set(0.2, 1.15, 0);
+            pFlasher.name = "siren";
+            pCar.add(pFlasher);
+            pCar.position.set(-65, 0.1, -6);
+            pCar.userData = { targetX: -12, targetZ: -6, speed: 0.55, active: false };
+            pCar.name = "policecar";
+            rescueVehiclesGroup.add(pCar);
+
+            scene.add(rescueVehiclesGroup);
+        }
+
+        function createSensorsAndSignals() {
+            const fCount = 50;
+            const fGeo = new THREE.BufferGeometry();
+            const fPos = new Float32Array(fCount * 3);
+
+            for (let i = 0; i < fCount; i++) {
+                fPos[i*3] = -2 + (Math.random() - 0.5) * 2.5;
+                fPos[i*3+1] = 5.75; 
+                fPos[i*3+2] = -2 + (Math.random() - 0.5) * 2.5;
+            }
+
+            fGeo.setAttribute('position', new THREE.BufferAttribute(fPos, 3));
+            fireSystem = new THREE.Points(fGeo, new THREE.PointsMaterial({
+                color: 0xef4444,
+                size: 0.28,
+                transparent: true,
+                opacity: 0,
+                blending: THREE.NormalBlending
+            }));
+            scene.add(fireSystem);
+
+            for (let i = 0; i < 3; i++) {
+                const discGeo = new THREE.RingGeometry(0.1, 0.3, 32);
+                const discMat = new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0 });
+                const disc = new THREE.Mesh(discGeo, discMat);
+                disc.rotation.x = Math.PI/2;
+                scene.add(disc);
+                radarSlices.push(disc);
+            }
+
+            loraWaves = new THREE.Group();
+            for (let i = 0; i < 3; i++) {
+                const ring = new THREE.Mesh(
+                    new THREE.RingGeometry(0.1, 0.4, 32),
+                    new THREE.MeshBasicMaterial({ color: 0xe11d48, side: THREE.DoubleSide, transparent: true, opacity: 0 })
+                );
+                ring.rotation.x = Math.PI/2;
+                loraWaves.add(ring);
+            }
+            scene.add(loraWaves);
+        }
+
+        function displayEmergencyModal() {
+            const m = document.getElementById('emergency-modal');
+            m.classList.remove('opacity-0', 'pointer-events-none');
+            m.querySelector('div').classList.remove('scale-90');
+            m.querySelector('div').classList.add('scale-100');
+        }
+
+        function dismissEmergencyModal() {
+            const m = document.getElementById('emergency-modal');
+            m.classList.add('opacity-0', 'pointer-events-none');
+            m.querySelector('div').classList.remove('scale-100');
+            m.querySelector('div').classList.add('scale-90');
+        }
+
+        function resetCasualtySimulation() {
+            if (deathTimer) clearInterval(deathTimer);
+            if (hudUpdateTimer) clearInterval(hudUpdateTimer);
+            
+            simOccupantsState = occupantsData.map(o => ({
+                id: o.id,
+                floor: o.floor,
+                flat: o.flat,
+                status: o.id === 17 ? "intruder" : "alive", 
+                name: o.name,
+                meshCollapsed: false
+            }));
+
+            if (occupantsGroup && occupantsGroup.children) {
+                occupantsGroup.children.forEach(mesh => {
+                    mesh.userData.isCollapsing = false;
+                    mesh.userData.collapseProgress = 0;
+
+                    const dataItem = occupantsData.find(d => `occupant-${d.id}` === mesh.name);
+                    if (dataItem) {
+                        mesh.position.set(dataItem.pos.x, dataItem.pos.y, dataItem.pos.z);
+                    }
+
+                    const visualGroup = mesh.getObjectByName("visual-group");
+                    if (visualGroup) {
+                        visualGroup.rotation.set(0, 0, 0);
+                        visualGroup.position.set(0, 0, 0);
+                    }
+
+                    const body = mesh.getObjectByName("h-body");
+                    if (body && dataItem) {
+                        body.material.color.setHex(dataItem.color);
+                    }
+                    
+                    const billboard = mesh.getObjectByName("label-billboard");
+                    if (billboard && dataItem) {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 256;
+                        canvas.height = 64;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+                        ctx.fillRect(0, 0, 256, 64);
+                        ctx.strokeStyle = dataItem.status === 'intruder' ? '#a855f7' : '#10b981';
+                        ctx.lineWidth = 4;
+                        ctx.strokeRect(0, 0, 256, 64);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.font = 'bold 16px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText(dataItem.name, 128, 38);
+                        
+                        const tex = new THREE.CanvasTexture(canvas);
+                        billboard.material.map = tex;
+                    }
+                });
+            }
+
+            if (rescueVehiclesGroup) {
+                rescueVehiclesGroup.children.forEach(v => {
+                    v.userData.active = false;
+                    if (v.name === "firetruck") v.position.set(-60, 0.1, -12);
+                    if (v.name === "policecar") v.position.set(-65, 0.1, -6);
+                });
+            }
+        }
+
+        function beginCasualtySimulation() {
+            resetCasualtySimulation();
+
+            rescueVehiclesGroup.children.forEach(v => {
+                v.userData.active = true;
+            });
+
+            displayEmergencyModal();
+
+            deathTimer = setInterval(() => {
+                const aliveList = simOccupantsState.filter(o => o.status === "alive");
+                if (aliveList.length > 0) {
+                    const picked = aliveList[Math.floor(Math.random() * aliveList.length)];
+                    picked.status = "unresponsive"; 
+                    collapseMesh(picked.id);
+                }
+            }, 3000);
+
+            hudUpdateTimer = setInterval(() => {
+                renderDynamicDashboard(currentStatus);
+            }, 5000);
+        }
+
+        function collapseMesh(occId) {
+            const mesh = occupantsGroup.getObjectByName(`occupant-${occId}`);
+            if (mesh) {
+                mesh.userData.isCollapsing = true;
+                mesh.userData.collapseProgress = 0;
+
+                const body = mesh.getObjectByName("h-body");
+                if (body) {
+                    body.material.color.setHex(0xf43f5e); 
+                }
+
+                const billboard = mesh.getObjectByName("label-billboard");
+                if (billboard) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 256;
+                    canvas.height = 64;
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = 'rgba(244, 63, 94, 0.95)';
+                    ctx.fillRect(0, 0, 256, 64);
+                    ctx.strokeStyle = '#f43f5e';
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(0, 0, 256, 64);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText("অসাড় / মৃত ব্যক্তি", 128, 38);
+                    
+                    const tex = new THREE.CanvasTexture(canvas);
+                    billboard.material.map = tex;
+                }
+            }
+        }
+
+        function renderDynamicDashboard(state) {
+            const container = document.getElementById('floor-list-container');
+            if (!container) return;
+            container.innerHTML = '';
+
+            let totalAlive = 0;
+            let totalUnresponsive = 0;
+
+            for (let f = 10; f >= 1; f--) {
+                const item = document.createElement('div');
+                item.className = 'bg-black/40 p-2.5 rounded-lg border border-white/5 text-[10px] flex justify-between items-center transition-all duration-300 cursor-pointer hover:bg-white/10 active:scale-98';
+                item.id = `floor-hud-${f}`;
+                item.setAttribute('onclick', `zoomToFloor(${f})`);
+
+                const floorOccupants = simOccupantsState.filter(o => o.floor === f);
+                const aliveOnFloor = floorOccupants.filter(o => o.status === 'alive').length;
+                const unresponsiveOnFloor = floorOccupants.filter(o => o.status === 'unresponsive').length;
+                const intrudersOnFloor = floorOccupants.filter(o => o.status === 'intruder').length;
+
+                totalAlive += aliveOnFloor;
+                totalUnresponsive += unresponsiveOnFloor;
+
+                let floorStatusHTML = '';
+                let recordDetailsHTML = '';
+
+                if (state === 'reset' || state === 'none') {
+                    floorStatusHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> স্বাভাবিক</span>`;
+                    recordDetailsHTML = `<span class="text-slate-300 font-bold">${floorOccupants.length} জন উপস্থিত</span>`;
+                } 
+                else {
+                    if (intrudersOnFloor > 0) {
+                        floorStatusHTML = `<span class="text-purple-400 font-bold animate-pulse"><i class="fa-solid fa-user-secret"></i> অনুপ্রবেশ</span>`;
+                        recordDetailsHTML = `<span class="text-emerald-400 font-semibold">${aliveOnFloor} জন জীবিত</span> | <span class="text-purple-400 font-bold">${intrudersOnFloor} চোর</span>`;
+                    } else if (unresponsiveOnFloor > 0) {
+                        floorStatusHTML = `<span class="text-rose-400 font-bold animate-pulse"><i class="fa-solid fa-triangle-exclamation"></i> বিপত্তি</span>`;
+                        recordDetailsHTML = `<span class="text-emerald-400 font-semibold">${aliveOnFloor} জীবিত</span> | <span class="text-rose-400 font-bold">${unresponsiveOnFloor} অসাড়</span>`;
+                    } else {
+                        floorStatusHTML = `<span class="text-emerald-400"><i class="fa-solid fa-eye"></i> স্ক্যানিং</span>`;
+                        recordDetailsHTML = `<span class="text-emerald-400 font-bold">${aliveOnFloor} জন জীবিত</span>`;
+                    }
+                }
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-1.5">
+                        <span class="font-mono text-slate-500 font-bold">${f}F</span>
+                        <div class="h-2 w-[1px] bg-white/10"></div>
+                        <div class="flex flex-col">
+                            <span class="text-[9px] text-slate-400">১০টি ফ্ল্যাট ইউনিট</span>
+                            <span class="text-[9px] text-slate-200">${recordDetailsHTML}</span>
+                        </div>
+                    </div>
+                    <div class="text-right flex flex-col items-end">
+                        ${floorStatusHTML}
+                    </div>
+                `;
+                container.appendChild(item);
+            }
+
+            document.getElementById('stat-alive').innerText = `${totalAlive} জন`;
+            document.getElementById('stat-unresponsive').innerText = `${totalUnresponsive} জন`;
+        }
+
+        function smoothZoomCamera(pos, lookAt) {
+            targetCamPos.copy(pos);
+            targetLookAt.copy(lookAt);
+            isTransitioning = true;
+            transitionStartTime = clock.getElapsedTime();
+        }
+
+        function zoomToFloor(floorNum) {
+            const targetY = (floorNum - 1) * 1.9;
+            smoothZoomCamera(new THREE.Vector3(12, targetY + 3.5, 12), new THREE.Vector3(0, targetY + 0.95, 0));
+        }
+
+        function zoomToPreset(preset) {
+            if (preset === 'building') {
+                smoothZoomCamera(new THREE.Vector3(30, 24, 30), new THREE.Vector3(0, 10, 0));
+            } else if (preset === 'f8') {
+                zoomToFloor(8);
+            } else if (preset === 'f4') {
+                zoomToFloor(4);
+            } else if (preset === 'f1') {
+                smoothZoomCamera(new THREE.Vector3(11, 2.8, 11), new THREE.Vector3(4.5, 0.1, 3.8));
+            }
+        }
+
+        function triggerSystem(action) {
+            currentStatus = action;
+            const scope = document.getElementById('scope-layer');
+            const logBox = document.getElementById('dynamic-log');
+            const logTitle = document.getElementById('log-title');
+            const logBody = document.getElementById('log-body');
+
+            resetAllVisualIndicators();
+
+            if (action === 'scan') {
+                scope.style.opacity = '1';
+                logBox.classList.remove('opacity-0', 'translate-y-4');
+                logBox.classList.add('opacity-100', 'translate-y-0');
+                logTitle.innerText = "থার্মাল ইনফ্রারেড স্ক্যান সক্রিয়";
+                logBody.innerText = "করিডোরের সিসিটিভি রাডার মিলিমিটার তরঙ্গ চালু করেছে। এটি দেয়াল ভেদ করে ১০ তলা বিল্ডিংয়ের সব ফ্লোরে অবস্থান করা ব্যক্তিদের অবয়ব থার্মাল সিগন্যালে ফুটিয়ে তুলেছে।";
+
+                occupantsGroup.children.forEach(occ => {
+                    const visualGroup = occ.getObjectByName("visual-group");
+                    if (visualGroup) {
+                        const core = visualGroup.getObjectByName("thermal-core");
+                        if (core) core.material.opacity = 0.85;
+                    }
+
+                    const label = occ.getObjectByName("label-billboard");
+                    if (label) label.material.opacity = 1;
+                });
+
+                setLEDBeacons(0x059669);
+                renderDynamicDashboard(action);
+
+                addSystemChatMessage("🚨 [অটোনোমাস কগনিティブ স্ক্যান] - থার্মাল মিলিমিটার সেন্সর সক্রিয় করা হয়েছে। পুরো ভবনের ১৭ জন বাসিন্দার ভাইটাল ও অবস্থান ডাটা কমান্ড ফোর্সের জন্য ম্যাপ করা হয়েছে।");
+
+            } else if (action === 'earthquake') {
+                zoomToFloor(8);
+                logBox.classList.remove('opacity-0', 'translate-y-4');
+                logBox.classList.add('opacity-100', 'translate-y-0');
+                logTitle.innerText = "সিসমিক অ্যালার্ট সক্রিয়";
+                logBody.innerText = "৮ম তলায় তীব্র কম্পন ও ঝাঁকুনি ডিটেক্টেড। সিসমিক ভাইটাল ট্র্যাকার চালু করা হয়েছে।";
+
+                beginCasualtySimulation();
+
+                setLEDBeacons(0xd97706);
+                setSingleLED(8, 0xe11d48);
+                renderDynamicDashboard(action);
+
+                addSystemChatMessage("⚠️ [অটোনোমাস ওয়ার্নিং] - সিসমিক সেন্সরে তীব্র কম্পন রেকর্ড করা হয়েছে। ৮ম তলার কাঠামোগত সুরক্ষায় ফাটল দেখা দিয়েছে। কামাল উদ্দিন, সাদিয়া আক্তার ও সোহেল রানার ভাইটাল মনিটর করা হচ্ছে।");
+
+            } else if (action === 'fire') {
+                zoomToFloor(4);
+                logBox.classList.remove('opacity-0', 'translate-y-4');
+                logBox.classList.add('opacity-100', 'translate-y-0');
+                logTitle.innerText = "অগ্নি বিপত্তি অ্যালার্ট";
+                logBody.innerText = "৪র্থ তলার ৪০১ নং ফ্ল্যাটে গ্যাস লিক থেকে আগুন ছড়ানোর সিগন্যাল। স্প্রিঙ্কলারের জলকণা এবং রিয়েল-টাইম থার্মাল অবয়ব সচল হয়েছে।";
+
+                beginCasualtySimulation();
+                fireSystem.material.opacity = 0.95;
+
+                setLEDBeacons(0xd97706);
+                setSingleLED(4, 0xe11d48);
+                renderDynamicDashboard(action);
+
+                addSystemChatMessage("🔥 [অটোনোমাস অ্যালার্ট] - ৪র্থ তলায় গ্যাস লিকজনিত অগ্নিকাণ্ডের সূত্রপাত হয়েছে। ফ্ল্যাট ৪০১-এ হাসান মাহমুদ এবং ফ্ল্যাট ৪০৩-এ মিরাজ ইসলাম আটকা পড়েছেন।");
+
+            } else if (action === 'intruder') {
+                zoomToPreset('f1');
+                logBox.classList.remove('opacity-0', 'translate-y-4');
+                logBox.classList.add('opacity-100', 'translate-y-0');
+                logTitle.innerText = "অনুপ্রবেশকারী (চোর) সনাক্ত!";
+                logBody.innerText = "১ম তলার ফ্ল্যাট ১০০৫ এ চোর অনুপ্রবেশ করেছে! সিকিউরিটি অ্যালার্ম বাটন অন করা হয়েছে এবং পুলিশকে ডিসপ্যাচ করা হয়েছে।";
+
+                rescueVehiclesGroup.children.forEach(v => {
+                    if (v.name === "policecar") v.userData.active = true;
+                });
+
+                const thief = occupantsGroup.getObjectByName("occupant-17");
+                if (thief) {
+                    const label = thief.getObjectByName("label-billboard");
+                    if (label) label.material.opacity = 1;
+                    const core = thief.getObjectByName("thermal-core");
+                    if (core) {
+                        core.material.color.setHex(0xa855f7);
+                        core.material.opacity = 0.9;
+                    }
+                }
+
+                setSingleLED(1, 0xa855f7);
+                renderDynamicDashboard(action);
+
+                addSystemChatMessage("🚨 [অটোনোমাস সিকিউরিটি অ্যালার্ট] - ১ম তলায় ফ্ল্যাট ১০০৫ এ চোর প্রবেশ করেছে। পুলিশ টিম রওয়ানা দিয়েছে। ১ তলার প্রধান গেট অটো-লক করা হচ্ছে যাতে সে পালাতে না পারে!");
+
+            } else if (action === 'reset') {
+                zoomToPreset('building');
+                scope.style.opacity = '0';
+                closeAlertLog();
+                resetCasualtySimulation();
+                renderDynamicDashboard('reset');
+
+                addSystemChatMessage("🔄 [সিস্টেম রিসেট] - সমস্ত সেন্সর এবং এনভায়রনমেন্টাল স্ট্যাটাস রিসেট করা হয়েছে। ভবন এখন নিরাপদ স্বাভাবিক অবস্থায় ফিরে এসেছে।");
+            }
+        }
+
+        function resetAllVisualIndicators() {
+            fireSystem.material.opacity = 0;
+            document.getElementById('scope-layer').style.opacity = '0';
+
+            radarSlices.forEach(slice => {
+                slice.material.opacity = 0;
+            });
+
+            occupantsGroup.children.forEach(occ => {
+                const visualGroup = occ.getObjectByName("visual-group");
+                if (visualGroup) {
+                    const core = visualGroup.getObjectByName("thermal-core");
+                    if (core) core.material.opacity = 0;
+                }
+                const label = occ.getObjectByName("label-billboard");
+                if (label) label.material.opacity = 0;
+            });
+
+            setLEDBeacons(0x10b981);
+            buildingGroup.position.set(0, 0, 0);
+            buildingGroup.rotation.set(0, 0, 0);
+        }
+
+        function setLEDBeacons(colorHex) {
+            activeAlertDevices.forEach(device => {
+                const led = device.getObjectByName("alert-led");
+                if (led) led.material.color.setHex(colorHex);
+            });
+        }
+
+        function setSingleLED(floorNum, colorHex) {
+            const device = scene.getObjectByName(`blackbox-F${floorNum}`);
+            if (device) {
+                const led = device.getObjectByName("alert-led");
+                if (led) led.material.color.setHex(colorHex);
+            }
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            if (!container) return;
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        // ==========================================
+        //  AUTONOMOUS COGNITIVE ENGINE (DYNAMIC ANALYSIS)
+        // ==========================================
+        
+        function appendChatMessage(sender, text, isUser = false) {
+            const chatBox = document.getElementById('autonomous-chat-box');
+            if (!chatBox) return;
+
+            const msgDiv = document.createElement('div');
+            if (isUser) {
+                msgDiv.className = "bg-emerald-950/40 border border-emerald-800/40 rounded-lg p-2.5 ml-4";
+                msgDiv.innerHTML = `
+                    <p class="text-[10px] text-emerald-400 font-bold mb-1 flex items-center gap-1 justify-end">
+                         কমান্ডার <i class="fa-solid fa-circle-user"></i>
+                    </p>
+                    <p class="text-slate-200 text-right text-[11px]">${text}</p>
+                `;
+            } else {
+                msgDiv.className = "bg-slate-950/40 border border-slate-800/60 rounded-lg p-2.5 mr-4";
+                msgDiv.innerHTML = `
+                    <p class="text-[10px] text-emerald-400 font-bold mb-1 flex items-center gap-1">
+                        <i class="fa-solid fa-robot animate-pulse"></i> অটোনোমাস ইন্টেলিজেন্স
+                    </p>
+                    <p class="text-slate-300 leading-relaxed text-[11px] whitespace-pre-wrap">${text}</p>
+                `;
+            }
+
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function addSystemChatMessage(text) {
+            appendChatMessage("Autonomous", text, false);
+        }
+
+        function sendQuickQuery(queryText) {
+            document.getElementById('chat-input').value = queryText;
+            sendMessage();
+        }
+
+        async function fetchGeminiResponse(userPrompt, systemInstruction, retries = 5, delay = 1000) {
+            const activeKey = userApiKey || ""; 
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${activeKey}`;
+
+            const payload = {
+                contents: [{
+                    parts: [{ text: userPrompt }]
+                }],
+                systemInstruction: {
+                    parts: [{ text: systemInstruction }]
+                }
+            };
+
+            for (let attempt = 1; attempt <= retries; attempt++) {
+                try {
+                    const response = await fetch(endpoint, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP Error Status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (textResponse) {
+                        return textResponse;
+                    } else {
+                        throw new Error("ফাঁকা এপিআই রেসপন্স পাওয়া গেছে।");
+                    }
+                } catch (error) {
+                    if (attempt === retries) {
+                        throw error; 
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2; 
+                }
+            }
+        }
+
+        function getMockAutonomousResponse(query, state) {
+            const q = query.toLowerCase();
+
+            const alive = simOccupantsState.filter(o => o.status === "alive");
+            const dead = simOccupantsState.filter(o => o.status === "unresponsive");
+            const intruder = simOccupantsState.filter(o => o.status === "intruder");
+
+            if (state === "none" || state === "reset") {
+                if (q.includes("কতজন") || q.includes("কে কেমন আছে") || q.includes("কারা জীবিত") || q.includes("কয়জন") || q.includes("কে কে") || q.includes("ক্যাজুয়াল্টি") || q.includes("অসাড়")) {
+                    return `🤖 **[অটোনোমাস লাইভ সেন্সর পর্যবেক্ষণ]**
+• **ভবনের অবস্থা:** সম্পূর্ণ স্বাভাবিক এবং নিরাপদ (🟢 গ্রীন জোন)।
+• **কোনো দুর্যোগ সক্রিয় আছে?** না, বর্তমানে কোনো ভূমিকম্প, অগ্নিকাণ্ড বা অনুপ্রবেশকারী সনাক্ত হয়নি।
+• **বাসিন্দাদের তথ্য:** মোট ১৭ জন বাসিন্দাই বর্তমানে **১০০% নিরাপদ এবং সম্পূর্ণ জীবিত ও সুস্থ** আছেন। কেউ অসাড় বা আহত নন।`;
+                }
+                
+                if (q.includes("ভূমিকম্প") || q.includes("earthquake") || q.includes("সিসমিক") || q.includes("কম্পন")) {
+                    return `🤖 **[সিসমিক সেন্সর চেকিং]**
+• না কমান্ডার, ভবনে কোনো ভূমিকম্প বা কম্পন অনুভূত হয়নি। স্ট্রাকচারাল ভাইব্রেশন লেভেল স্বাভাবিক আছে।`;
+                }
+
+                if (q.includes("আগুন") || q.includes("fire") || q.includes("অগ্নিকাণ্ড")) {
+                    return `🤖 **[ফায়ার সেন্সর চেকিং]**
+• না কমান্ডার, ভবনে বর্তমানে কোনো অগ্নিকাণ্ড ঘটেনি। তাপমাত্রা একদম স্বাভাবিক এবং ধোঁয়া সনাক্তকারী সেন্সরগুলো নিরাপদ সংকেত দিচ্ছে।`;
+                }
+
+                if (q.includes("চোর") || q.includes("অনুপ্রবেশ") || q.includes("intruder") || q.includes("ডাকাত")) {
+                    return `🤖 **[সিকিউরিটি মোশন চেকিং]**
+• না কমান্ডার, ভবনের কোথাও কোনো অনুপ্রবেশকারী বা চোর সনাক্ত হয়নি। লবি এবং গেট লক সুরক্ষিত আছে।`;
+                }
+            }
+
+            if (state === "earthquake") {
+                if (q.includes("আগুন") || q.includes("fire") || q.includes("অগ্নিকাণ্ড")) {
+                    return `🤖 **[ফায়ার সেন্সর চেকিং]**
+• না কমান্ডার, বর্তমানে ভবনে কোনো অগ্নিকাণ্ড ঘটেনি। বর্তমানে শুধুমাত্র ৮ম তলায় সিসমিক (ভূমিকম্প) বিপর্যয় সক্রিয় আছে।`;
+                }
+                if (q.includes("চোর") || q.includes("অনুপ্রবেশ") || q.includes("intruder") || q.includes("ডাকাত")) {
+                    return `🤖 **[সিকিউরিটি মোশন চেকিং]**
+• না কমান্ডার, বর্তমানে কোনো অনুপ্রবেশকারী বা চোর সনাক্ত হয়নি। বর্তমানে শুধুমাত্র ৮ম তলায় ভূমিকম্প বিপর্যয় সক্রিয় আছে।`;
+                }
+                let deadNames = dead.map(o => `${o.name} (${o.floor}F, ফ্ল্যাট ${o.flat})`).join(", ");
+                return `🤖 **[অটোনোমাস সিসমিক লাইভ রেসকিউ ফিড]**
+• **আটকে পড়া / অসাড় ব্যক্তি:** বর্তমানে **${dead.length} জন** সিসমিক আঘাতে সংজ্ঞাহীন বা আটকা পড়েছেন। 
+  ${dead.length > 0 ? `👉 *অসাড় বাসিন্দারা:* ${deadNames}` : `👉 *বর্তমানে এখনো কোনো বাসিন্দা অসাড় নন, তবে পরিস্থিতি পরিবর্তনশীল।*`}
+• **জীবিত ও সুরক্ষিত:** **${alive.length} জন** বাসিন্দা।`;
+            }
+
+            if (state === "fire") {
+                if (q.includes("ভূমিকম্প") || q.includes("earthquake") || q.includes("সিসমিক") || q.includes("কম্পন")) {
+                    return `🤖 **[সিসমিক সেন্সর চেকিং]**
+• না কমান্ডার, বর্তমানে ভবনে কোনো ভূমিকম্প বা কম্পন ঘটেনি। বর্তমানে শুধুমাত্র ৪ তলায় অগ্নি দুর্ঘটনা সক্রিয় রয়েছে।`;
+                }
+                if (q.includes("চোর") || q.includes("অনুপ্রবেশ") || q.includes("intruder") || q.includes("ডাকাত")) {
+                    return `🤖 **[সিকিউরিটি মোশন চেকিং]**
+• না কমান্ডার, বর্তমানে কোনো অনুপ্রবেশকারী বা চোর সনাক্ত হয়নি। বর্তমানে শুধুমাত্র ৪ তলায় অগ্নিকাণ্ড সক্রিয় আছে।`;
+                }
+                let deadNames = dead.map(o => `${o.name} (${o.floor}F, ফ্ল্যাট ${o.flat})`).join(", ");
+                return `🤖 **[অটোনোমাস ফায়ার ডিসপ্যাচ ডিরেক্টিভ]**
+• **উৎসের অবস্থান:** ৪র্থ তলার ফ্লাট ৪০১ (হাসান মাহমুদের ইউনিট)।
+• **মুমূর্ষু বা আটকা পড়া ব্যক্তি:** বর্তমানে **${dead.length} জন** আক্রান্ত বা ধোঁয়ায় সংজ্ঞাহীন।
+  ${dead.length > 0 ? `👉 *অসাড় বাসিন্দারা:* ${deadNames}` : `👉 *৪র্থ তলার হাসান মাহমুদ (৪০১) ও মিরাজ ইসলাম (৪০৩) ঝুঁকিতে আছেন।*`}`;
+            }
+
+            if (state === "intruder") {
+                if (q.includes("ভূমিকম্প") || q.includes("earthquake") || q.includes("সিসমিক") || q.includes("কম্পন")) {
+                    return `🤖 **[সিসমিক সেন্সর চেকিং]**
+• না কমান্ডার, বর্তমানে কোনো ভূমিকম্প ঘটেনি। বর্তমানে শুধুমাত্র ১ তলায় অনুপ্রবেশকারী অ্যালার্ট সক্রিয় রয়েছে।`;
+                }
+                if (q.includes("আগুন") || q.includes("fire") || q.includes("অগ্নিকাণ্ড")) {
+                    return `🤖 **[ফায়ার সেন্সর চেকিং]**
+• না কমান্ডার, বর্তমানে ভবনে কোনো অগ্নিকাণ্ড ঘটেনি। বর্তমানে শুধুমাত্র ১ তলায় অনুপ্রবেশকারী অ্যালার্ট সক্রিয় রয়েছে।`;
+                }
+                return `🤖 **[অটোনোমাস সিকিউরিটি পুলিশিং প্রটোকল]**
+• **অনুপ্রবেশকারী:** ১ জন সন্দেহভাজন ব্যক্তি (১০০৫ নম্বর ফ্ল্যাট, ১ম তলা)।
+• **বাসিন্দাদের নিরাপত্তা:** সালামত সাহেব নিরাপদ দূরত্বে (ফ্ল্যাট ১০০১) সুরক্ষিত আছেন।`;
+            }
+
+            const names = ["করিম", "ফাতেমা", "সাকিব", "কামাল", "সাদিয়া", "সোহেল", "আশরাফ", "তানজিলা", "রফিক", "লিটন", "হাসান", "মিরাজ", "নুসরাত", "আরিফ", "তাহসিন", "সালামত"];
+            for (let name of names) {
+                if (q.includes(name.toLowerCase())) {
+                    const person = simOccupantsState.find(o => o.name.toLowerCase().includes(name.toLowerCase()));
+                    if (person) {
+                        let statusEmoji = person.status === "alive" ? "🟢 জীবিত ও সুরক্ষিত" : "🔴 অসাড়/আহত";
+                        return `🤖 **[ব্যক্তিগত ভাইটাল ট্র্যাকার]**\n• **নাম:** ${person.name}\n• **অবস্থান:** ${person.floor} তলা (ফ্ল্যাট ${person.flat})\n• **বর্তমান স্ট্যাটাস:** ${statusEmoji}`;
+                    }
+                }
+            }
+
+            return `🤖 **[অটোনোমাস কগনিティブ কমান্ড]**\n• কমান্ডার, আপনার প্রশ্নটি অত্যন্ত গুরুত্বপূর্ণ। বর্তমানে ভবনের সামগ্রিক সেন্সর স্ট্যাটাস: **${state === 'none' || state === 'reset' ? '🟢 স্বাভাবিক' : '🔴 জরুরি অবস্থা'}**।\n• সুনির্দিষ্ট তথ্যের জন্য অনুগ্রহ করে "কতজন জীবিত?", "আগুন লেগেছে কি?", "ভূমিকম্পের অবস্থা কি?" বা কোনো বাসিন্দার নাম ধরে জিজ্ঞেস করুন।`;
+        }
+
+        function buildLiveContext() {
+            const currentCrisis = currentStatus;
+            const aliveOccupants = simOccupantsState.filter(o => o.status === 'alive').map(o => `${o.name} (Floor ${o.floor}, Flat ${o.flat})`);
+            const unresponsiveOccupants = simOccupantsState.filter(o => o.status === 'unresponsive').map(o => `${o.name} (Floor ${o.floor}, Flat ${o.flat})`);
+            const intruderOccupants = simOccupantsState.filter(o => o.status === 'intruder').map(o => `${o.name} (Floor ${o.floor}, Flat ${o.flat})`);
+
+            return `[রিয়েল-টাইম লাইভ ডাটাবেজ ফিড - অত্যন্ত গুরুত্বপূর্ণ]:
+- বর্তমান সচল ইভেন্ট (Current Active Event): ${currentCrisis === 'none' ? 'স্বাভাবিক অবস্থা (কোনো সংকট নেই)' : currentCrisis}
+- সিসমিক/ফায়ার সেন্সর স্ট্যাটাস: ${currentCrisis === 'earthquake' ? '৮ম তলায় তীব্র কম্পন সক্রিয়!' : currentCrisis === 'fire' ? '৪র্থ তলায় গ্যাস লিক ও আগুন সক্রিয়!' : currentCrisis === 'intruder' ? '১ম তলায় চোর অনুপ্রবেশ করেছে!' : 'সব স্বাভাবিক'}
+- বর্তমানে জীবিত ও সুস্থ বাসিন্দাদের তালিকা (Total: ${aliveOccupants.length}):
+${aliveOccupants.join(", ") || "কেউ নেই"}
+- বর্তমানে আঘাতপ্রাপ্ত/সংজ্ঞাহীন বাসিন্দাদের তালিকা (Total: ${unresponsiveOccupants.length}):
+${unresponsiveOccupants.join(", ") || "কেউ নেই"}
+- অনুপ্রবেশকারী চোর (Total: ${intruderOccupants.length}):
+${intruderOccupants.join(", ") || "কেউ নেই"}
+
+নির্দেশনা: ব্যবহারকারী যখন কোনো প্রশ্ন জিজ্ঞাসা করবেন, তখন এই লাইভ ডাটা রিডিং দেখে শুধুমাত্র যে বিষয়টি জিজ্ঞেস করা হয়েছে কেবল সেটির সুনির্দিষ্ট, পয়েন্ট টু পয়েন্ট উত্তর দিন। ইভেন্ট শুরু হওয়ার আগে (স্বাভাবিক অবস্থায়) কাউকে মৃত বলবেন না। যদি ফায়ার সক্রিয় থাকে আর ব্যবহারকারী আর্থকুয়েক সম্পর্কে জিজ্ঞেস করে, তবে স্পষ্টভাবে বলুন যে কোনো ভূমিকম্প সক্রিয় নেই, বর্তমানে শুধুমাত্র অগ্নিকাণ্ড সক্রিয় রয়েছে।`;
+        }
+
+        async function sendMessage() {
+            const inputField = document.getElementById('chat-input');
+            const sendIcon = document.getElementById('send-icon');
+            const query = inputField.value.trim();
+            if (!query) return;
+
+            appendChatMessage("User", query, true);
+            inputField.value = "";
+
+            sendIcon.className = "fa-solid fa-spinner animate-spin text-xs";
+
+            try {
+                if (userApiKey && userApiKey.trim() !== "") {
+                    const systemContext = `${userDirectives}\n\n${buildLiveContext()}`;
+                    const aiResponse = await fetchGeminiResponse(query, systemContext);
+                    addSystemChatMessage(aiResponse);
+                } else {
+                    setTimeout(() => {
+                        const simulatedResponse = getMockAutonomousResponse(query, currentStatus);
+                        addSystemChatMessage(simulatedResponse);
+                    }, 500); 
+                }
+            } catch (err) {
+                addSystemChatMessage(`⚠️ অটোনোমাস এপিআই সংযোগে ত্রুটি পাওয়া গেছে! দয়া করে আপনার এপিআই কী-টি কনফিগারেশনে চেক করুন। ত্রুটির বিবরণ: ${err.message}`);
+            } finally {
+                sendIcon.className = "fa-solid fa-paper-plane text-xs";
+            }
+        }
+
+        document.getElementById('chat-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // ==========================================
+        //  DRAGGABLE BOTTOM CONTROL BAR LOGIC
+        // ==========================================
+        function makeDockDraggable() {
+            const dock = document.getElementById('control-dock');
+            const handle = document.getElementById('drag-handle');
+            
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            
+            handle.onmousedown = dragMouseDown;
+            handle.ontouchstart = dragTouchStart;
+
+            function dragMouseDown(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+                handle.style.cursor = 'grabbing';
+            }
+
+            function elementDrag(e) {
+                e = e || window.event;
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                
+                dock.style.bottom = 'auto';
+                dock.style.top = (dock.offsetTop - pos2) + "px";
+                dock.style.left = (dock.offsetLeft - pos1) + "px";
+                dock.style.transform = 'none'; 
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+                handle.style.cursor = 'grab';
+            }
+
+            function dragTouchStart(e) {
+                const touch = e.touches[0];
+                pos3 = touch.clientX;
+                pos4 = touch.clientY;
+                document.ontouchend = closeTouchDrag;
+                document.ontouchmove = touchDragMove;
+            }
+
+            function touchDragMove(e) {
+                const touch = e.touches[0];
+                pos1 = pos3 - touch.clientX;
+                pos2 = pos4 - touch.clientY;
+                pos3 = touch.clientX;
+                pos4 = touch.clientY;
+
+                dock.style.bottom = 'auto';
+                dock.style.top = (dock.offsetTop - pos2) + "px";
+                dock.style.left = (dock.offsetLeft - pos1) + "px";
+                dock.style.transform = 'none';
+            }
+
+            function closeTouchDrag() {
+                document.ontouchend = null;
+                document.ontouchmove = null;
+            }
+
+            let lastTap = 0;
+            dock.addEventListener('touchstart', function(e) {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                if (tapLength < 300 && tapLength > 0) {
+                    dock.style.top = 'auto';
+                    dock.style.bottom = '24px';
+                    dock.style.left = '50%';
+                    dock.style.transform = 'translateX(-50%)';
+                    addSystemChatMessage("📌 [ডক ডিরেক্টিভ] - কন্ট্রোল বারটিকে পুনরায় মাঝখানে লক করা হয়েছে।");
+                    e.preventDefault();
+                }
+                lastTap = currentTime;
+            });
+
+            dock.ondblclick = function() {
+                dock.style.top = 'auto';
+                dock.style.bottom = '24px';
+                dock.style.left = '50%';
+                dock.style.transform = 'translateX(-50%)';
+                addSystemChatMessage("📌 [ডক ডিরেক্টিভ] - কন্ট্রোল বারটিকে পুনরায় মাঝখানে লক করা হয়েছে।");
+            };
+        }
+
+        // ==========================================
+        //  ANIMATION & PHYSICS ENGINE LOOP
+        // ==========================================
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsed = clock.getElapsedTime();
+
+            if (isTransitioning) {
+                const duration = 2.0;
+                const t = (elapsed - transitionStartTime) / duration;
+                
+                if (t >= 1.0) {
+                    isTransitioning = false;
+                } else {
+                    camera.position.lerp(targetCamPos, 0.05);
+                    controls.target.lerp(targetLookAt, 0.05);
+                }
+            }
+
+            controls.update();
+
+            if (currentStatus === 'none' && !isTransitioning) {
+                buildingGroup.rotation.y = Math.sin(elapsed * 0.08) * 0.03;
+            }
+
+            if (pedestriansGroup && pedestriansGroup.children) {
+                pedestriansGroup.children.forEach(ped => {
+                    const speedMult = (currentStatus === 'earthquake' || currentStatus === 'fire') ? 4.5 : 1.0;
+                    const speed = ped.userData.speed * speedMult;
+                    
+                    if (ped.userData.axis === 'x') {
+                        ped.position.x += speed * ped.userData.dir;
+                        if (Math.abs(ped.position.x) > 40) {
+                            ped.userData.dir *= -1; 
+                        }
+                        if (currentStatus === 'earthquake' || currentStatus === 'fire') {
+                            ped.position.z += Math.sin(elapsed * 10) * 0.05; 
+                        }
+                    } else {
+                        ped.position.z += speed * ped.userData.dir;
+                        if (Math.abs(ped.position.z) > 40) {
+                            ped.userData.dir *= -1;
+                        }
+                        if (currentStatus === 'earthquake' || currentStatus === 'fire') {
+                            ped.position.x += Math.sin(elapsed * 10) * 0.05;
+                        }
+                    }
+                });
+            }
+
+            if (rescueVehiclesGroup && rescueVehiclesGroup.children) {
+                rescueVehiclesGroup.children.forEach(v => {
+                    if (v.userData.active) {
+                        if (v.position.x < v.userData.targetX) {
+                            v.position.x += v.userData.speed;
+                        }
+                        const siren = v.getObjectByName("siren");
+                        if (siren) {
+                            siren.material.color.setHex(Math.sin(elapsed * 25) > 0 ? 0xef4444 : 0x3b82f6);
+                        }
+                    }
+                });
+            }
+
+            if (currentStatus === 'earthquake') {
+                const shake = 0.06;
+                buildingGroup.position.x = Math.sin(elapsed * 45) * shake;
+                buildingGroup.position.z = Math.cos(elapsed * 45) * shake;
+
+                loraWaves.position.set(0, 13.3, 0);
+                loraWaves.children.forEach((ring, idx) => {
+                    const waveSpeed = 1.3;
+                    const delay = idx * 0.5;
+                    const scale = ((elapsed * waveSpeed + delay) % 1.5) * 14;
+                    ring.scale.set(scale, scale, 1);
+                    ring.material.opacity = (1.5 - (scale / 14)) * 0.8;
+                });
+            } else {
+                loraWaves.children.forEach(ring => {
+                    ring.material.opacity = 0;
+                });
+            }
+
+            if (currentStatus === 'scan') {
+                radarSlices.forEach((slice, idx) => {
+                    slice.position.set(0, (idx * 3.8) + 1.2, 0);
+                    const speed = 1.1;
+                    const scale = ((elapsed * speed + (idx * 0.4)) % 1.5) * 25;
+                    slice.scale.set(scale, scale, 1);
+                    slice.material.opacity = (1.5 - (scale / 25)) * 0.65;
+                });
+            } else {
+                radarSlices.forEach(slice => {
+                    slice.material.opacity = 0;
+                });
+            }
+
+            if (currentStatus === 'fire') {
+                const pos = fireSystem.geometry.attributes.position.array;
+                for (let i = 1; i < pos.length; i += 3) {
+                    pos[i] += Math.sin(elapsed + i) * 0.015;
+                    if (pos[i] > 7.4) pos[i] = 5.7;
+                }
+                fireSystem.geometry.attributes.position.needsUpdate = true;
+            }
+
+            if (occupantsGroup && occupantsGroup.children) {
+                occupantsGroup.children.forEach(occ => {
+                    const label = occ.getObjectByName("label-billboard");
+                    if (label && label.material.opacity > 0) {
+                        label.lookAt(camera.position);
+                    }
+
+                    if (occ.userData && occ.userData.isCollapsing) {
+                        occ.userData.collapseProgress += 0.01; 
+                        if (occ.userData.collapseProgress >= 1.0) {
+                            occ.userData.collapseProgress = 1.0;
+                            occ.userData.isCollapsing = false;
+                        }
+                        
+                        const t = occ.userData.collapseProgress;
+                        const easeT = t * (2 - t); 
+                        
+                        const visualGroup = occ.getObjectByName("visual-group");
+                        if (visualGroup) {
+                            visualGroup.rotation.x = (Math.PI / 2) * easeT;
+                            visualGroup.position.y = 0.16 * easeT;
+                            visualGroup.position.z = easeT * 0.15;
+                        }
+                    }
+                });
+            }
+
+            if (currentStatus !== 'none' && currentStatus !== 'reset') {
+                activeAlertDevices.forEach(device => {
+                    const led = device.getObjectByName("alert-led");
+                    if (led) {
+                        led.material.opacity = Math.sin(elapsed * 12) > 0 ? 1.0 : 0.2;
+                        led.material.transparent = true;
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            updateLoadingStatus("রেন্ডার ইঞ্জিন লোড হচ্ছে...", 30);
+            
+            setTimeout(() => {
+                if (typeof THREE !== 'undefined') {
+                    init();
+                } else {
+                    document.getElementById('loading-text').innerText = "থ্রি.জেএস লাইব্রেরি লোড হতে পারেনি! পেজটি রিফ্রেশ করুন।";
+                }
+            }, 600);
+        });
+    </script>
+</body>
+</html>
